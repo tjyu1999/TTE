@@ -53,11 +53,15 @@ class Env:
             if prd < self.flow_info[2]:
                 pos_of_slot = self.graph.edges[edge_idx].find_slot(prd, self.flow_info[2])
                 delay = pos_of_slot[0]
+                valid = 1 if delay < self.deadline else 0
+
             else:
                 delay = self.hyper_prd * self.slot_num
+                valid = 0
 
             edge_state[prd][0] = (prd + 1) / self.hyper_prd
             edge_state[prd][1] = delay / self.deadline
+            edge_state[prd][2] = valid
 
         return edge_state
 
@@ -86,13 +90,15 @@ class Env:
         edge_idx = self.visited_edge[-1]
         pos_of_slot = self.graph.edges[edge_idx].find_slot(prd, self.flow_info[2])
 
-        if self.graph.edges[edge_idx].check_slot(pos_of_slot):
+        if self.graph.edges[edge_idx].check_slot(pos_of_slot) and self.deadline - pos_of_slot[0] >= 0:
             self.actions[edge_idx] = pos_of_slot
+            if len(self.visited_edge) > 1:
+                self.deadline -= pos_of_slot[0]
             done = 1
-            reward = -pos_of_slot[0] / (self.hyper_prd * self.slot_num)
+            reward = 1 - pos_of_slot[0] / (self.hyper_prd * self.slot_num)
         else:
-            done = 0
-            reward = -1
+            done = -1
+            reward = -10
 
         return done, reward, pos_of_slot
 
