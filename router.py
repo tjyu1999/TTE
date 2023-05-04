@@ -14,7 +14,8 @@ class Router:
         self.dist_mat = dist_mat
         self.neighbors = neighbors
         self.device = device
-
+        
+        self.node_num = len(adj_mat)
         self.loss_function = nn.SmoothL1Loss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=args.router_lr, weight_decay=args.weight_dec)
 
@@ -24,7 +25,7 @@ class Router:
             self.dist_mat = dist_mat
 
         actions = self.model(node_state, adj_mat, dist_mat)
-        actions = actions.reshape(12, 12)[curr_node_idx]
+        actions = actions.reshape(self.node_num, self.node_num)[curr_node_idx]
 
         valid_actions = []
         mask = self.neighbors[curr_node_idx]
@@ -57,7 +58,7 @@ class Router:
         for exp in sampled_memory:
             state, action, reward, state_, done = exp
 
-            actions = self.model(state.to(self.device), adj_mat, dist_mat).reshape(12, 12)
+            actions = self.model(state.to(self.device), adj_mat, dist_mat).reshape(self.node_num, self.node_num)
             pred = actions[action[0], action[1]]
             next_actions = self.model(state_.to(self.device), adj_mat, dist_mat)[action[1]].detach()
             target = reward.to(self.device) + args.gamma * torch.max(next_actions) * (1 - done)
