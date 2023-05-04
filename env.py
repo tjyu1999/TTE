@@ -164,7 +164,7 @@ class Env:
     def buffer_usage(self):
         usage = []
         for node in self.graph.nodes.values():
-            usage.append(node.buffer_status / node.buffer_size)
+            usage.append(node.buff_status / node.buff_size)
 
         return usage
 
