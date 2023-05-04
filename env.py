@@ -18,14 +18,9 @@ class Env:
         self.visited_edge = []
         self.actions = {}
         self.deadline = 0
-        self.init_info()
 
         self.hyper_prd = args.hyper_prd
         self.slot_num = args.slot_num
-
-    def init_info(self):
-        self.visited_node.clear()
-        self.visited_edge.clear()
 
     def get_info(self, flow_idx):
         self.flow_info = self.data.flow_info[flow_idx]
@@ -35,13 +30,13 @@ class Env:
     def get_node_state(self):
         node_state = np.zeros([args.node_num, args.node_state_dim])
         curr_node_idx = self.visited_node[-1]
-        valid_node = self.find_valid()
+        valid_node = self.neighbors[curr_node_idx]
 
         for node in self.graph.nodes.values():
             node_state[node.idx][0] = node.buff_status / node.buff_size
             node_state[node.idx][1] = 1 if node.idx == curr_node_idx else 0
             node_state[node.idx][2] = 1 if node.idx == self.flow_info[1] else 0
-            node_state[node.idx][3] = 1 if node.idx in valid_node else 0
+            node_state[node.idx][3] = 1 if node.idx in valid_node and self.check_cycle(node.idx) else 0
 
         return node_state
 
@@ -52,9 +47,12 @@ class Env:
         for prd in range(self.hyper_prd):
             if prd < self.flow_info[2]:
                 pos_of_slot = self.graph.edges[edge_idx].find_slot(prd, self.flow_info[2])
-                delay = pos_of_slot[0]
-                valid = 1 if delay < self.deadline else 0
-
+                if pos_of_slot:
+                    delay = pos_of_slot[0]
+                    valid = 1 if delay < self.deadline else 0
+                else:
+                    delay = self.hyper_prd * self.slot_num
+                    valid = 0
             else:
                 delay = self.hyper_prd * self.slot_num
                 valid = 0
@@ -90,7 +88,7 @@ class Env:
         edge_idx = self.visited_edge[-1]
         pos_of_slot = self.graph.edges[edge_idx].find_slot(prd, self.flow_info[2])
 
-        if self.graph.edges[edge_idx].check_slot(pos_of_slot) and self.deadline - pos_of_slot[0] >= 0:
+        if pos_of_slot and self.deadline - pos_of_slot[0] >= 0:
             self.actions[edge_idx] = pos_of_slot
             if len(self.visited_edge) > 1:
                 self.deadline -= pos_of_slot[0]
@@ -137,46 +135,34 @@ class Env:
 
         return True
 
-    def find_valid(self):
-        curr_node_idx = self.visited_node[-1]
-        valid_node, valid_edge = [], []
-
-        for edge in self.graph.edges.values():
-            if edge.start_node.idx == curr_node_idx \
-                    and edge.end_node.idx not in self.visited_node \
-                    and not self.check_cycle(edge.end_node.idx):
-                valid_edge.append(edge.idx)
-
-        for edge_idx in valid_edge:
-            valid_node.append(self.graph.edges[edge_idx].end_node.idx)
-
-        return valid_node
-
     def schedule(self, pos_of_slot):
         edge_idx = self.visited_edge[-1]
-        self.graph.edges[edge_idx].end_node.buff_status -= 1
+        self.graph.edges[edge_idx].end_node.buff_status -= self.flow_info[3]
         self.graph.edges[edge_idx].occupy_slot(pos_of_slot)
 
     def compensate(self):
         for edge_idx in self.visited_edge:
-            self.graph.edges[edge_idx].end_node.buff_status += 1
+            self.graph.edges[edge_idx].end_node.buff_status += self.flow_info[3]
 
-    def buffer_usage(self):
-        usage = []
+    def buff_usage(self):
+        buff_usage = []
         for node in self.graph.nodes.values():
-            usage.append(node.buff_status / node.buff_size)
+            buff_usage.append(node.buff_status / node.buff_size)
 
-        return usage
+        return buff_usage
 
     def slot_usage(self):
-        usage = []
+        slot_usage = []
         for edge in self.graph.edges.values():
-            usage.append(sum(edge.slot_status) / (self.hyper_prd * self.slot_num))
+            slot_usage.append(sum(edge.slot_status) / (self.hyper_prd * self.slot_num))
 
-        return usage
+        return slot_usage
 
     def renew(self):
-        self.init_info()
+        self.visited_node.clear()
+        self.visited_edge.clear()
+        self.actions = {}
+        self.deadline = 0
 
     def reset(self):
         self.renew()
