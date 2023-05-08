@@ -22,7 +22,7 @@ class Trainer:
         else:
             self.device = torch.device('cpu')
 
-        self.data = Ladder()
+        self.data = Ladder(args.train_flow_num)
         self.data.gen_all_data()
         self.env = Env(self.data)
 
@@ -34,11 +34,10 @@ class Trainer:
 
         self.train_cnt = 0
         self.val_cnt = 0
-        self.record = {'router loss': [], 'scheduler loss': [], 'router num': [], 'scheduler num': []}
+        self.record = {'router loss': [], 'scheduler loss': [], 'val num': []}
 
     def train_one_episode(self):
         start_time = time.time()
-
         router_num = 0
         scheduler_num = 0
 
@@ -52,7 +51,8 @@ class Trainer:
             self.env.get_info(flow_idx)
             node_state = self.env.get_node_state()
             node_state = torch.from_numpy(node_state).float().to(self.device)
-            scheduler_failed = False
+
+            schedule_failed = False
 
             while True:
                 state = node_state
@@ -66,69 +66,78 @@ class Trainer:
                 self.router.store_pair(state, [curr_node_idx, next_node_idx], reward, node_state, d)
 
                 if done == 0:
-                    if not scheduler_failed:
+                    if not schedule_failed:
                         flow_prd = self.env.flow_info[2]
                         edge_state = self.env.get_edge_state()
                         edge_state = torch.from_numpy(edge_state).float().to(self.device)
 
-                        prd, value = self.scheduler.slot_assignment(edge_state, flow_prd)
+                        prd = self.scheduler.slot_assignment(edge_state, flow_prd)
                         done_, reward_, pos_of_slot = self.env.judge(prd)
                         reward_ = torch.FloatTensor([reward_])[0].to(self.device)
-                        self.scheduler.store_pair(value, reward_)
+                        self.scheduler.store_pair(edge_state, prd, reward_)
 
                         if done_ == 1:
                             self.env.schedule(pos_of_slot)
                         elif done_ == -1:
-                            self.env.compensate()
-                            scheduler_failed = True
-
+                            schedule_failed = True
+                            self.env.slot_compensate()
                     continue
 
                 elif done == 1:
-                    router_num += 1
-                    if not scheduler_failed:
+                    if not schedule_failed:
+                        router_num += 1
                         flow_prd = self.env.flow_info[2]
                         edge_state = self.env.get_edge_state()
                         edge_state = torch.from_numpy(edge_state).float().to(self.device)
 
-                        prd, value = self.scheduler.slot_assignment(edge_state, flow_prd)
+                        prd = self.scheduler.slot_assignment(edge_state, flow_prd)
                         done_, reward_, pos_of_slot = self.env.judge(prd)
                         reward_ = torch.FloatTensor([reward_])[0].to(self.device)
-                        self.scheduler.store_pair(value, reward_)
+                        self.scheduler.store_pair(edge_state, prd, reward_)
 
                         if done_ == 1:
-                            self.env.schedule(pos_of_slot)
                             scheduler_num += 1
+                            self.env.schedule(pos_of_slot)
                         elif done_ == -1:
-                            self.env.compensate()
+                            self.env.slot_compensate()
                     break
 
                 elif done == -1:
+                    self.env.buff_compensate()
+                    self.env.slot_compensate()
                     break
 
             self.env.renew()
 
         router_loss = self.router.learn()
         scheduler_loss = self.scheduler.learn()
-
         self.record['router loss'].append(router_loss.item())
         self.record['scheduler loss'].append(scheduler_loss.item())
-        self.record['router num'].append(router_num)
-        self.record['scheduler num'].append(scheduler_num)
         writer.add_scalar('router loss', router_loss, self.train_cnt)
         writer.add_scalar('scheduler loss', scheduler_loss, self.train_cnt)
-        writer.add_scalar('router num', router_num, self.train_cnt)
-        writer.add_scalar('scheduler num', scheduler_num, self.train_cnt)
         self.train_cnt += 1
 
         print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
-              'Episode: {} |'.format(self.train_cnt),
+              'Epoch: {} |'.format(self.train_cnt),
+              'Time: {:.02f}s |'.format(time.time() - start_time),
               'Num: {}/{} |'.format(router_num, scheduler_num),
-              'Time: {:.02f}s'.format(time.time() - start_time))
+              'Loss: {:.04f}/{:.04f}'.format(router_loss, scheduler_loss))
         print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
-              'Router Loss: {:.02f} |'.format(router_loss.item()),
-              'Scheduler Loss: {:.02f}'.format(scheduler_loss.item()))
-        print('#' * 60)
+              '-' * 60)
+
+        buff_usage = self.env.buff_usage()
+        slot_usage = self.env.slot_usage()
+        print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
+              'Buff Usage: ', end='')
+        for i in buff_usage:
+            print('{:.02f}'.format(i), end='|')
+        print()
+        print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
+              'Slot Usage: ', end='')
+        for i in slot_usage:
+            print('{:.02f}'.format(i), end='|')
+        print()
+        print('#' * 190)
 
     def train(self):
         for _ in range(args.episodes):
@@ -136,10 +145,83 @@ class Trainer:
 
     @torch.no_grad()
     def val_one_episode(self):
-        pass
+        start_time = time.time()
+        val_num = 0
+
+        self.data = Ladder(flow_num=args.val_flow_num)
+        self.data.gen_all_data()
+        self.env = Env(self.data)
+        self.env.reset()
+        adj_mat = torch.from_numpy(self.env.adj_mat).float().to(self.device)
+        dist_mat = torch.from_numpy(self.env.dist_mat).float().to(self.device)
+
+        for flow_idx in range(len(self.data.flow_info)):
+            self.env.get_info(flow_idx)
+            node_state = self.env.get_node_state()
+            node_state = torch.from_numpy(node_state).float().to(self.device)
+            scheduler_failed = False
+
+            while True:
+                curr_node_idx = self.env.visited_node[-1]
+                next_node_idx = self.router.select_action(curr_node_idx, node_state, adj_mat, dist_mat)
+                done, reward, node_state = self.env.step(next_node_idx)
+                node_state = torch.from_numpy(node_state).float().to(self.device)
+
+                if done == 0:
+                    flow_prd = self.env.flow_info[2]
+                    edge_state = self.env.get_edge_state()
+                    edge_state = torch.from_numpy(edge_state).float().to(self.device)
+
+                    prd, value = self.scheduler.slot_assignment(edge_state, flow_prd)
+                    done_, reward_, pos_of_slot = self.env.judge(prd)
+
+                    if done_ == 1:
+                        self.env.schedule(pos_of_slot)
+                    elif done_ == -1:
+                        self.env.slot_compensate()
+                        scheduler_failed = True
+
+                    if not scheduler_failed:
+                        continue
+                    elif scheduler_failed:
+                        break
+
+                elif done == 1:
+                    flow_prd = self.env.flow_info[2]
+                    edge_state = self.env.get_edge_state()
+                    edge_state = torch.from_numpy(edge_state).float().to(self.device)
+
+                    prd, value = self.scheduler.slot_assignment(edge_state, flow_prd)
+                    done_, reward_, pos_of_slot = self.env.judge(prd)
+
+                    if done_ == 1:
+                        val_num += 1
+                        self.env.schedule(pos_of_slot)
+                    elif done_ == -1:
+                        self.env.slot_compensate()
+                    break
+
+                elif done == -1:
+                    self.env.buff_compensate()
+                    break
+
+            self.env.renew()
+            if done == -1 or scheduler_failed:
+                break
+
+        self.record['val num'].append(val_num)
+        self.val_cnt += 1
+
+        print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
+              'Val Time: {} |'.format(self.train_cnt),
+              'Num: {} |'.format(val_num),
+              'Time: {:.02f}s'.format(time.time() - start_time))
+        print('#' * 50)
 
     def val(self):
-        pass
+        for _ in range(args.val_times):
+            self.val_one_episode()
+        print(sum(self.record['val num']) / len(self.record['val num']))
 
     def save(self):
         if not os.path.exists('record'):

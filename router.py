@@ -9,12 +9,12 @@ from param import args
 class Router:
     def __init__(self, adj_mat, dist_mat, neighbors, device):
         self.model = AGNModel(args.agn_hidden_dim, args.layer_num, device)
-        self.memory = Memory()
+        self.memory = Memory(args.memory_length)
         self.adj_mat = adj_mat
         self.dist_mat = dist_mat
         self.neighbors = neighbors
         self.device = device
-        
+
         self.node_num = len(adj_mat)
         self.loss_function = nn.SmoothL1Loss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=args.router_lr, weight_decay=args.weight_dec)
@@ -35,26 +35,22 @@ class Router:
 
         return next_node_idx
 
-    @torch.no_grad()
-    def select_action_for_val(self):
-        pass
-
     def store_pair(self, state, action, reward, state_, done):
-        self.memory.push(state, action, reward, state_, done)
+        self.memory.router_push(state, action, reward, state_, done)
 
     def sample_pair(self):
-        return self.memory.sample(args.batch_size)
+        return self.memory.router_sample(args.batch_size)
 
     def learn(self):
         self.model.train()
         self.optimizer.zero_grad()
 
+        adj_mat = torch.from_numpy(self.adj_mat).float().to(self.device)
+        dist_mat = torch.from_numpy(self.dist_mat).float().to(self.device)
         preds = []
         targets = []
         sampled_memory = self.sample_pair()
 
-        adj_mat = torch.from_numpy(self.adj_mat).float().to(self.device)
-        dist_mat = torch.from_numpy(self.dist_mat).float().to(self.device)
         for exp in sampled_memory:
             state, action, reward, state_, done = exp
 
@@ -70,7 +66,6 @@ class Router:
         loss.backward()
         self.optimizer.step()
 
-        self.memory.clear()
         preds.clear()
         targets.clear()
 

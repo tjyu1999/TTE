@@ -48,17 +48,17 @@ class Env:
             if prd < self.flow_info[2]:
                 pos_of_slot = self.graph.edges[edge_idx].find_slot(prd, self.flow_info[2])
                 if pos_of_slot:
-                    delay = pos_of_slot[0]
-                    valid = 1 if delay < self.deadline else 0
+                    dly = pos_of_slot[0]
+                    valid = 1 if dly < self.deadline else 0
                 else:
-                    delay = self.hyper_prd * self.slot_num
+                    dly = self.hyper_prd * self.slot_num
                     valid = 0
             else:
-                delay = self.hyper_prd * self.slot_num
+                dly = self.hyper_prd * self.slot_num
                 valid = 0
 
             edge_state[prd][0] = (prd + 1) / self.hyper_prd
-            edge_state[prd][1] = delay / self.deadline
+            edge_state[prd][1] = dly / self.deadline
             edge_state[prd][2] = valid
 
         return edge_state
@@ -88,12 +88,16 @@ class Env:
         edge_idx = self.visited_edge[-1]
         pos_of_slot = self.graph.edges[edge_idx].find_slot(prd, self.flow_info[2])
 
-        if pos_of_slot and self.deadline - pos_of_slot[0] >= 0:
+        if pos_of_slot:
             self.actions[edge_idx] = pos_of_slot
             if len(self.visited_edge) > 1:
                 self.deadline -= pos_of_slot[0]
-            done = 1
-            reward = 1 - pos_of_slot[0] / (self.hyper_prd * self.slot_num)
+            if self.deadline <= 0:
+                done = -1
+                reward = -10
+            else:
+                done = 1
+                reward = 10 - (pos_of_slot[0] / (self.hyper_prd * self.slot_num))
         else:
             done = -1
             reward = -10
@@ -140,9 +144,14 @@ class Env:
         self.graph.edges[edge_idx].end_node.buff_status -= self.flow_info[3]
         self.graph.edges[edge_idx].occupy_slot(pos_of_slot)
 
-    def compensate(self):
-        for edge_idx in self.visited_edge:
+    def buff_compensate(self):
+        for edge_idx in self.actions:
             self.graph.edges[edge_idx].end_node.buff_status += self.flow_info[3]
+
+    def slot_compensate(self):
+        for edge_idx in self.actions:
+            for pos in self.actions[edge_idx]:
+                self.graph.edges[edge_idx].slot_status[pos] += 1
 
     def buff_usage(self):
         buff_usage = []
