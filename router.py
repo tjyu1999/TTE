@@ -9,7 +9,7 @@ from param import args
 class Router:
     def __init__(self, adj_mat, dist_mat, neighbors, device):
         self.model = AGNModel(args.agn_hidden_dim, args.layer_num, device)
-        self.memory = Memory(args.memory_length)
+        self.memory = Memory()
         self.adj_mat = adj_mat
         self.dist_mat = dist_mat
         self.neighbors = neighbors
@@ -66,3 +66,12 @@ class Router:
         targets.clear()
 
         return loss
+
+    def reset_memory(self):
+        self.memory.router_reset()
+
+    def save_model(self, is_best):
+        self.model.save_state(is_best)
+
+    def load_model(self, is_best):
+        self.model.load_state(is_best)

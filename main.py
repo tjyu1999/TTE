@@ -34,10 +34,14 @@ class Trainer:
 
         self.train_cnt = 0
         self.val_cnt = 0
-        self.record = {'router loss': [], 'scheduler loss': [], 'val num': []}
+        self.record = {'router loss': [], 'scheduler loss': []}
+        self.val_record = []
 
     def train_one_episode(self):
         start_time = time.time()
+        self.router.model.train()
+        self.scheduler.model.train()
+
         router_num = 0
         scheduler_num = 0
 
@@ -111,11 +115,20 @@ class Trainer:
 
         router_loss = self.router.learn()
         scheduler_loss = self.scheduler.learn()
+
         self.record['router loss'].append(router_loss.item())
         self.record['scheduler loss'].append(scheduler_loss.item())
         writer.add_scalar('router loss', router_loss, self.train_cnt)
         writer.add_scalar('scheduler loss', scheduler_loss, self.train_cnt)
+
+        self.router.reset_memory()
+        self.scheduler.reset_memory()
         self.train_cnt += 1
+
+        is_best = True if router_loss.item() == min(self.record['router loss']) else False
+        self.router.save_model(is_best)
+        is_best = True if scheduler_loss.item() == min(self.record['scheduler loss']) else False
+        self.scheduler.save_model(is_best)
 
         print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
               'Epoch: {} |'.format(self.train_cnt),
@@ -123,7 +136,7 @@ class Trainer:
               'Num: {}/{} |'.format(router_num, scheduler_num),
               'Loss: {:.04f}/{:.04f}'.format(router_loss, scheduler_loss))
         print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
-              '-' * 60)
+              '-' * 70)
 
         buff_usage = self.env.buff_usage()
         slot_usage = self.env.slot_usage()
@@ -146,6 +159,11 @@ class Trainer:
     @torch.no_grad()
     def val_one_episode(self):
         start_time = time.time()
+        self.router.model.eval()
+        self.scheduler.model.eval()
+        self.router.load_model(is_best=True)
+        self.scheduler.load_model(is_best=True)
+
         val_num = 0
 
         self.data = Ladder(flow_num=args.val_flow_num)
@@ -172,26 +190,21 @@ class Trainer:
                     edge_state = self.env.get_edge_state()
                     edge_state = torch.from_numpy(edge_state).float().to(self.device)
 
-                    prd, value = self.scheduler.slot_assignment(edge_state, flow_prd)
+                    prd = self.scheduler.slot_assignment(edge_state, flow_prd)
                     done_, reward_, pos_of_slot = self.env.judge(prd)
 
                     if done_ == 1:
                         self.env.schedule(pos_of_slot)
                     elif done_ == -1:
-                        self.env.slot_compensate()
                         scheduler_failed = True
-
-                    if not scheduler_failed:
-                        continue
-                    elif scheduler_failed:
-                        break
+                        self.env.slot_compensate()
 
                 elif done == 1:
                     flow_prd = self.env.flow_info[2]
                     edge_state = self.env.get_edge_state()
                     edge_state = torch.from_numpy(edge_state).float().to(self.device)
 
-                    prd, value = self.scheduler.slot_assignment(edge_state, flow_prd)
+                    prd = self.scheduler.slot_assignment(edge_state, flow_prd)
                     done_, reward_, pos_of_slot = self.env.judge(prd)
 
                     if done_ == 1:
@@ -203,41 +216,66 @@ class Trainer:
 
                 elif done == -1:
                     self.env.buff_compensate()
+                    self.env.slot_compensate()
+                    break
+
+                if not scheduler_failed:
+                    continue
+                elif scheduler_failed:
                     break
 
             self.env.renew()
             if done == -1 or scheduler_failed:
                 break
 
-        self.record['val num'].append(val_num)
+        self.val_record.append(val_num)
         self.val_cnt += 1
 
         print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
-              'Val Time: {} |'.format(self.train_cnt),
+              'Val Time: {} |'.format(self.val_cnt),
               'Num: {} |'.format(val_num),
               'Time: {:.02f}s'.format(time.time() - start_time))
-        print('#' * 50)
+        print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
+              '-' * 50)
+
+        buff_usage = self.env.buff_usage()
+        slot_usage = self.env.slot_usage()
+        print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
+              'Buff Usage: ', end='')
+        for i in buff_usage:
+            print('{:.02f}'.format(i), end='|')
+        print()
+        print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
+              'Slot Usage: ', end='')
+        for i in slot_usage:
+            print('{:.02f}'.format(i), end='|')
+        print()
+        print('#' * 190)
 
     def val(self):
         for _ in range(args.val_times):
             self.val_one_episode()
         print(sum(self.record['val num']) / len(self.record['val num']))
 
-    def save(self):
+    def save_record(self):
         if not os.path.exists('record'):
             os.makedirs('record')
         for key in self.record.keys():
             np.save(f'record/{key}.npy', self.record[key])
+        np.save('record/val_record.npy', self.val_record)
 
 
 writer.close()
 
 
 def main():
+    if not os.path.exists('models'):
+        os.makedirs('models')
+
     trainer = Trainer()
     trainer.train()
-    # trainer.val()
-    trainer.save()
+    trainer.val()
+    trainer.save_record()
 
 
 if __name__ == '__main__':

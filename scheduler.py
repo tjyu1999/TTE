@@ -9,7 +9,7 @@ from param import args
 class Scheduler:
     def __init__(self, device):
         self.model = PrdModel(args.edge_state_dim, args.prd_hidden_dim, device)
-        self.memory = Memory(args.memory_length)
+        self.memory = Memory()
         self.device = device
 
         self.loss_function = nn.SmoothL1Loss()
@@ -48,4 +48,16 @@ class Scheduler:
         loss.backward()
         self.optimizer.step()
 
+        preds.clear()
+        targets.clear()
+
         return loss
+
+    def reset_memory(self):
+        self.memory.scheduler_reset()
+
+    def save_model(self, is_best):
+        self.model.save_state(is_best)
+
+    def load_model(self, is_best):
+        self.model.load_state(is_best)

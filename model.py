@@ -14,6 +14,9 @@ class AGNModel(nn.Module):
         self.agn_layers = nn.ModuleList(AGNLayer(hidden_dim, device) for _ in range(layer_num))
         self.to(device)
 
+        self.state_path = 'models/agn_state.pt'
+        self.best_state_path = 'models/best_agn_state.pt'
+
     def forward(self, x, adj_mat, dist_mat):
         x = self.node_layer(x)
         adj_mat = self.adj_layer(adj_mat.unsqueeze(dim=2))
@@ -27,6 +30,17 @@ class AGNModel(nn.Module):
 
         return out
 
+    def save_state(self, is_best):
+        torch.save(self.state_dict(), self.state_path)
+        if is_best:
+            torch.save(self.state_dict(), self.best_state_path)
+
+    def load_state(self, is_best):
+        if is_best:
+            self.load_state_dict(torch.load(self.best_state_path))
+        else:
+            self.load_state_dict(torch.load(self.state_path))
+
 
 class PrdModel(nn.Module):
     def __init__(self, input_dim, hidden_dim, device):
@@ -36,9 +50,23 @@ class PrdModel(nn.Module):
         self.fc_layer_3 = nn.Linear(hidden_dim[1], 1)
         self.to(device)
 
+        self.state_path = 'models/prd_state.pt'
+        self.best_state_path = 'models/best_prd_state.pt'
+
     def forward(self, e):
         e = F.leaky_relu(self.fc_layer_1(e))
         e = F.leaky_relu(self.fc_layer_2(e))
         out = self.fc_layer_3(e)
 
         return out
+
+    def save_state(self, is_best):
+        torch.save(self.state_dict(), self.state_path)
+        if is_best:
+            torch.save(self.state_dict(), self.best_state_path)
+
+    def load_state(self, is_best):
+        if is_best:
+            self.load_state_dict(torch.load(self.best_state_path))
+        else:
+            self.load_state_dict(torch.load(self.state_path))

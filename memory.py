@@ -2,17 +2,13 @@ import random
 
 
 class Memory:
-    def __init__(self, max_len):
+    def __init__(self):
         self.router_memory = []
         self.scheduler_memory = []
-        self.max_len = max_len
 
     def router_push(self, state, action, reward, state_, done):
         exp = [state, action, reward, state_, done]
         self.router_memory.append(exp)
-
-        if len(self.router_memory) > self.max_len:
-            self.router_memory.pop(0)
 
     def router_sample(self, batch_size):
         sample_indices = random.sample(range(len(self.router_memory)), batch_size)
@@ -26,9 +22,6 @@ class Memory:
         exp = [state, action, reward]
         self.scheduler_memory.append(exp)
 
-        if len(self.scheduler_memory) > self.max_len:
-            self.scheduler_memory.pop(0)
-
     def scheduler_sample(self, batch_size):
         sample_indices = random.sample(range(len(self.scheduler_memory)), batch_size)
         memory_for_train = []
@@ -37,6 +30,8 @@ class Memory:
 
         return memory_for_train
 
-    def clear(self):
+    def router_reset(self):
         self.router_memory.clear()
+
+    def scheduler_reset(self):
         self.scheduler_memory.clear()
