@@ -20,10 +20,6 @@ class Router:
         self.optimizer = optim.Adam(self.model.parameters(), lr=args.router_lr, weight_decay=args.weight_dec)
 
     def select_action(self, curr_node_idx, node_state, adj_mat, dist_mat):
-        if self.adj_mat is None or self.dist_mat is None:
-            self.adj_mat = adj_mat
-            self.dist_mat = dist_mat
-
         actions = self.model(node_state, adj_mat, dist_mat)
         actions = actions.reshape(self.node_num, self.node_num)[curr_node_idx]
 
