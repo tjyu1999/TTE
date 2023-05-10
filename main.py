@@ -32,6 +32,7 @@ class Trainer:
         self.router = Router(adj_mat, dist_mat, neighbors, self.device)
         self.scheduler = Scheduler(self.device)
 
+        self.load_model = False
         self.train_cnt = 0
         self.val_cnt = 0
         self.record = {'router loss': [], 'scheduler loss': []}
@@ -120,10 +121,10 @@ class Trainer:
         self.record['scheduler loss'].append(scheduler_loss.item())
         writer.add_scalar('router loss', router_loss, self.train_cnt)
         writer.add_scalar('scheduler loss', scheduler_loss, self.train_cnt)
+        self.train_cnt += 1
 
         self.router.reset_memory()
         self.scheduler.reset_memory()
-        self.train_cnt += 1
 
         is_best = True if router_loss.item() == min(self.record['router loss']) else False
         self.router.save_model(is_best)
@@ -161,8 +162,9 @@ class Trainer:
         start_time = time.time()
         self.router.model.eval()
         self.scheduler.model.eval()
-        self.router.load_model(is_best=True)
-        self.scheduler.load_model(is_best=True)
+        if self.load_model:
+            self.router.load_model(is_best=True)
+            self.scheduler.load_model(is_best=True)
 
         val_num = 0
 
@@ -255,7 +257,7 @@ class Trainer:
     def val(self):
         for _ in range(args.val_times):
             self.val_one_episode()
-        print(sum(self.record['val num']) / len(self.record['val num']))
+        print(sum(self.val_record) / len(self.val_record))
 
     def save_record(self):
         if not os.path.exists('record'):
@@ -271,9 +273,8 @@ writer.close()
 def main():
     if not os.path.exists('models'):
         os.makedirs('models')
-
     trainer = Trainer()
-    trainer.train()
+    # trainer.train()
     trainer.val()
     trainer.save_record()
 

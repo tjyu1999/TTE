@@ -52,15 +52,6 @@ class Edge:
         for pos in pos_of_slot:
             self.slot_status[pos] -= 1
 
-    def check_slot(self, pos_of_slot):
-        check = True
-        for pos in pos_of_slot:
-            if self.slot_status[pos] != 1:
-                check = False
-                break
-
-        return check
-
     def reset(self):
         self.slot_status = [1 for _ in range(self.hyper_prd * self.slot_num)]
 

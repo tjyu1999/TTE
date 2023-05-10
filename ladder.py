@@ -4,7 +4,7 @@ from param import args
 
 
 class Ladder:
-    def __init__(self, flow_num=100):
+    def __init__(self, flow_num):
         self.node_num = args.node_num
         self.flow_num = flow_num
 
