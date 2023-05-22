@@ -27,43 +27,32 @@ class Edge:
 
         self.hyper_prd = args.hyper_prd
         self.slot_num = args.slot_num
-        self.slot_status = [1 for _ in range(self.hyper_prd * self.slot_num)]
+        self.slot_status = np.ones([self.hyper_prd * self.slot_num])
+        self.slot_table = np.array([i for i in range(self.hyper_prd * self.slot_num)])
 
     def find_slot(self, prd, flow_prd):
         frames = int(self.hyper_prd / flow_prd)
+        table = self.slot_table.reshape(frames, flow_prd * self.slot_num).transpose().copy()
 
-        for slot_idx in range(prd * self.slot_num, (prd + 1) * self.slot_num):
-            if self.slot_status[slot_idx] != 1:
-                continue
-            pos_of_slot = []
-            failed = False
-
-            for frame in range(frames):
-                temp_slot_idx = slot_idx + frame * flow_prd * self.slot_num
-                if self.slot_status[temp_slot_idx] == 1:
-                    pos_of_slot.append(temp_slot_idx)
-                    continue
-                else:
-                    failed = True
-                    break
-
-            if not failed:
-                return pos_of_slot
-            elif failed:
-                continue
+        for i in range(prd * self.slot_num, (prd + 1) * self.slot_num):
+            if not list(table[i]).count(-1):
+                return list(table[i])
 
         return []
 
     def occupy_slot(self, pos):
         for p in pos:
             self.slot_status[p] -= 1
+            self.slot_table[p] = -1
 
     def compensate_slot(self, pos):
         for p in pos:
             self.slot_status[p] += 1
+            self.slot_table[p] = p
 
     def reset(self):
-        self.slot_status = [1 for _ in range(self.hyper_prd * self.slot_num)]
+        self.slot_status = np.ones([self.hyper_prd * self.slot_num])
+        self.slot_table = np.array([i for i in range(self.hyper_prd * self.slot_num)])
 
 
 class Graph:
