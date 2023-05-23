@@ -2,7 +2,7 @@ import datetime
 import time
 import numpy as np
 import torch
-from ladder import Ladder
+from data import Ladder
 from env import Env
 from agent import Agent
 from param import args
@@ -44,14 +44,11 @@ class Failure:
             x = torch.from_numpy(x).float()
             e = torch.from_numpy(e).float()
             table[f_i] = {}
-            s_failed = False
 
             while True:
-                if s_failed:
-                    break
-
+                r_mask = self.env.r_val_mask()
                 i = self.env.visited_node[-1]
-                j = self.agent.r_make_action(i, x, e)
+                j = self.agent.r_make_action_val(i, x, e, r_mask)
                 r_done, reward, r_state = self.env.r_step(j)
 
                 x, e = r_state
@@ -59,27 +56,26 @@ class Failure:
                 e = torch.from_numpy(e).float()
 
                 if r_done == 0:
+                    s_mask = self.env.s_val_mask()
                     p = self.env.s_state()
                     p = torch.from_numpy(p).float()
-                    prd = self.agent.s_make_action(p, self.env.flow_info[2])
+                    prd = self.agent.s_make_action_val(p, s_mask)
                     s_done, reward, pos = self.env.s_step(prd)
                     if s_done == 1:
                         e_i = self.env.n2e.index([i, j])
                         self.env.val_schedule(e_i, pos)
                         table[f_i][e_i] = pos
-                    elif s_done == -1:
-                        s_failed = True
 
                 elif r_done == 1:
+                    s_mask = self.env.s_val_mask()
                     p = self.env.s_state()
                     p = torch.from_numpy(p).float()
-                    prd = self.agent.s_make_action(p, self.env.flow_info[2])
+                    prd = self.agent.s_make_action_val(p, s_mask)
                     s_done, reward, pos = self.env.s_step(prd)
                     if s_done == 1:
                         e_i = self.env.n2e.index([i, j])
                         self.env.val_schedule(e_i, pos)
                         table[f_i][e_i] = pos
-
                     break
 
                 elif r_done == -1:
@@ -104,6 +100,7 @@ class Failure:
             x, e = self.env.r_state()
             x = torch.from_numpy(x).float()
             e = torch.from_numpy(e).float()
+            r_failed = False
             s_failed = False
 
             while True:
@@ -138,15 +135,21 @@ class Failure:
                         e_i = self.env.n2e.index([i, j])
                         self.env.val_schedule(e_i, pos)
                         num += 1
-
+                    elif s_done == 1:
+                        s_failed = True
                     break
 
                 elif r_done == -1:
+                    r_failed = True
                     break
 
             self.env.renew()
+            if r_failed or s_failed:
+                break
 
         self.val_cnt += 1
+        self.num.append(num)
+
         print(datetime.datetime.now().strftime('[%m-%d %H:%M:%S]'),
               'Val Time: {} |'.format(self.val_cnt),
               'Num: {} |'.format(num),
@@ -164,7 +167,7 @@ class Failure:
         self.save()
 
     def save(self):
-        np.save('../failure/val.npy', self.num)
+        np.save('../failure/plot/val.npy', self.num)
 
 
 def main():

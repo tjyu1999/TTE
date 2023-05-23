@@ -15,7 +15,6 @@ class Agent:
 
         self.agn_model = AGNModel(device)
         self.prd_model = PrdModel(device)
-
         self.loss_function = nn.SmoothL1Loss()
         self.optimizer = optim.Adam([{'params': self.agn_model.parameters(), 'lr': args.r_lr},
                                      {'params': self.prd_model.parameters(), 'lr': args.s_lr}],
@@ -45,9 +44,9 @@ class Agent:
     def r_make_action(self, i, x, e):
         x = x.to(self.device)
         e = e.to(self.device)
-        a = torch.from_numpy(self.adj_mat).float().to(self.device)
-        d = torch.from_numpy(self.dis_mat).float().to(self.device)
-        actions = self.agn_model(x, e, a, d)
+        a_mat = torch.from_numpy(self.adj_mat).float().to(self.device)
+        d_mat = torch.from_numpy(self.dis_mat).float().to(self.device)
+        actions = self.agn_model(x, e, a_mat, d_mat)
         actions = actions.squeeze()[i]
 
         valid_actions = []
@@ -66,32 +65,45 @@ class Agent:
 
         return action
 
-    def r_push(self, s, a, r, s_, d):
-        x, e = s
+    def r_make_action_val(self, i, x, e, mask):
         x = x.to(self.device)
         e = e.to(self.device)
-        s = [x, e]
-        r = r.to(self.device)
-        x_, e_ = s_
-        x_ = x_.to(self.device)
-        e_ = e_.to(self.device)
-        s_ = [x_, e_]
+        a_mat = torch.from_numpy(self.adj_mat).float().to(self.device)
+        d_mat = torch.from_numpy(self.dis_mat).float().to(self.device)
+        actions = self.agn_model(x, e, a_mat, d_mat)
+        actions = actions.squeeze()[i]
 
+        valid_actions = []
+        for n in mask:
+            valid_actions.append(actions[n].item())
+        action = mask[valid_actions.index(max(valid_actions))]
+
+        return action
+
+    def s_make_action_val(self, s, mask):
+        s = s.to(self.device)
+        actions = self.prd_model(s).reshape(-1)
+
+        valid_actions = []
+        for i in mask:
+            valid_actions.append(actions[i].item())
+        action = mask[valid_actions.index(max(valid_actions))]
+
+        return action
+
+    def r_push(self, s, a, r, s_, d):
         self.r_memory.append([s, a, r, s_, d])
 
     def s_push(self, s, a, r):
-        s = s.to(self.device)
-        r = r.to(self.device)
-
         self.s_memory.append([s, a, r])
 
     def sample_memory(self):
         r_sample = []
         s_sample = []
-        for i in random.sample(range(len(self.r_memory)), self.batch_size):
+        for i, j in zip(random.sample(range(len(self.r_memory)), self.batch_size),
+                        random.sample(range(len(self.s_memory)), self.batch_size)):
             r_sample.append(self.r_memory[i])
-        for i in random.sample(range(len(self.s_memory)), self.batch_size):
-            s_sample.append(self.s_memory[i])
+            s_sample.append(self.s_memory[j])
 
         return r_sample, s_sample
 
@@ -107,22 +119,20 @@ class Agent:
         r_pair = [[], []]
         s_pair = [[], []]
         r_sample, s_sample = self.sample_memory()
+
         for r_exp, s_exp in zip(r_sample, s_sample):
             s, a, r, s_, d = r_exp
-            x, e = s
-            x_, e_ = s_
-
-            r_actions = self.agn_model(x, e, a_mat, d_mat).squeeze()
-            r_actions_ = self.agn_model(x_, e_, a_mat, d_mat)[a[1]].detach()
+            r_actions = self.agn_model(s[0].to(self.device), s[1].to(self.device), a_mat, d_mat).squeeze()
+            r_actions_ = self.agn_model(s_[0].to(self.device), s_[1].to(self.device), a_mat, d_mat)[a[1]].detach()
             r_pred = r_actions[a[0]][a[1]]
-            r_target = r + self.gamma * torch.max(r_actions_) * (1 - d)
+            r_target = r.to(self.device) + self.gamma * torch.max(r_actions_) * (1 - d)
             r_pair[0].append(r_pred)
             r_pair[1].append(r_target)
 
             _s, _a, _r = s_exp
-            s_actions = self.prd_model(_s).reshape(-1)
+            s_actions = self.prd_model(_s.to(self.device)).reshape(-1)
             s_pred = s_actions[_a]
-            s_target = _r
+            s_target = _r.to(self.device)
             s_pair[0].append(s_pred)
             s_pair[1].append(s_target)
 
